@@ -22,7 +22,7 @@ const static float kNmsThresh = 0.45f;
 const static float kConfThresh = 0.5f;
 
 /// <summary>
-///  ÎªÊäÈëÊä³öÕÅÁ¿¿ª±ÙCPUºÍGPUÄÚ´æ
+///  ä¸ºè¾“å…¥è¾“å‡ºå¼ é‡å¼€è¾ŸCPUå’ŒGPUå†…å­˜
 /// </summary>
 /// <param name="engine"></param>
 /// <param name="gpu_input_buffer"></param>
@@ -46,7 +46,7 @@ void prepare_buffers(ICudaEngine* engine, float** gpu_input_buffer, float** gpu_
 }
 
 /// <summary>
-/// Ö´ĞĞÍÆÀí²¢½«½á¹û´ÓGPU¿½±´ÖÁCPUÄÚ´æ
+/// æ‰§è¡Œæ¨ç†å¹¶å°†ç»“æœä»GPUæ‹·è´è‡³CPUå†…å­˜
 /// </summary>
 /// <param name="context"></param>
 /// <param name="stream"></param>
@@ -55,7 +55,8 @@ void prepare_buffers(ICudaEngine* engine, float** gpu_input_buffer, float** gpu_
 /// <param name="output2"></param>
 /// <param name="batchSize"></param>
 void infer(IExecutionContext& context, cudaStream_t& stream, void** buffers, float* output1, float* output2, int batchSize) {
-    context.enqueue(batchSize, buffers, stream, nullptr);
+    //context.enqueue(batchSize, buffers, stream, nullptr);
+    context.enqueueV2(buffers, stream, nullptr);
     CUDA_CHECK(cudaMemcpyAsync(output1, buffers[1], batchSize * kOutputSize1 * sizeof(float), cudaMemcpyDeviceToHost, stream));
     CUDA_CHECK(cudaMemcpyAsync(output2, buffers[2], batchSize * kOutputSize2 * sizeof(float), cudaMemcpyDeviceToHost, stream));
     cudaStreamSynchronize(stream);
@@ -65,7 +66,7 @@ void infer(IExecutionContext& context, cudaStream_t& stream, void** buffers, flo
 void inference1(string engineFile, string labelFile, std::vector<std::string> imagePaths) {
     MyLogger logger;
     fstream file;
-#pragma region ´ÓÎÄ¼ş¶ÁÈ¡Engine
+#pragma region ä»æ–‡ä»¶è¯»å–Engine
     cout << "loading filename from:" << engineFile << endl;
     nvinfer1::IRuntime* trtRuntime;
     file.open(engineFile, ios::binary | ios::in);
@@ -78,16 +79,16 @@ void inference1(string engineFile, string labelFile, std::vector<std::string> im
     cout << "load engine done" << endl;
 #pragma endregion
 
-    // ´´½¨runtime£¬²¢·´ĞòÁĞ»¯engine
+    // åˆ›å»ºruntimeï¼Œå¹¶ååºåˆ—åŒ–engine
     std::cout << "deserializing" << endl;
     trtRuntime = createInferRuntime(logger);
     ICudaEngine* engine = trtRuntime->deserializeCudaEngine(data.get(), length);
     cout << "deserialize done" << endl;
 
-    // ´´½¨Ö´ĞĞ»·¾³
+    // åˆ›å»ºæ‰§è¡Œç¯å¢ƒ
     nvinfer1::IExecutionContext* context = engine->createExecutionContext();
 
-    // ¿´Ò»ÏÂÊäÈëÊä³öĞÎ×´
+    // çœ‹ä¸€ä¸‹è¾“å…¥è¾“å‡ºå½¢çŠ¶
     // input (1, 3, 640, 640)
     // output1 (1, 32, 160, 160)
     // output2 (1, 25200, 117)
@@ -96,11 +97,11 @@ void inference1(string engineFile, string labelFile, std::vector<std::string> im
     //    continue;
     //}
 
-    // ¶ÁÈ¡label.txt
+    // è¯»å–label.txt
     std::unordered_map<int, std::string> labels_map;
     read_labels(labelFile, labels_map);
 
-    // ´´½¨cudaÁ÷
+    // åˆ›å»ºcudaæµ
     cudaStream_t stream;
     CUDA_CHECK(cudaStreamCreate(&stream));
     const static int kMaxInputImageSize = 4096 * 3112;
@@ -124,7 +125,7 @@ void inference1(string engineFile, string labelFile, std::vector<std::string> im
             img_name_batch.push_back(imagePaths[i]);
         }
 
-        // Preprocess£¬½«Í¼Æ¬resizeµ½640,640
+        // Preprocessï¼Œå°†å›¾ç‰‡resizeåˆ°640,640
         cuda_batch_preprocess(img_batch, gpu_buffers[0], kInputW, kInputH, stream);
 
         // Run inference
@@ -142,6 +143,8 @@ void inference1(string engineFile, string labelFile, std::vector<std::string> im
         // Draw result and save image
         for (int b = 0; b < img_name_batch.size(); b++) {
             auto& res = res_batch[b];
+            // size=0è¯´æ˜OK
+            //if (res.size() == 0)
             cv::Mat img = img_batch[b];
 
             auto masks = process_mask(&cpu_output_buffer1[b * kOutputSize1], kOutputSize1, res);
@@ -155,13 +158,211 @@ void inference1(string engineFile, string labelFile, std::vector<std::string> im
 }
 
 
+extern "C"
+{
+    __declspec(dllexport) void YourCppFunction(float* image, int rows, int cols, int channels)
+    {
+        cv::Mat mat(rows, cols, CV_32FC(channels), image);
+        mat.convertTo(mat, CV_8U);
+        cv::imshow("Image", mat);
+        cv::waitKey(0);
+    }
+}
+
+extern "C"
+{
+    __declspec(dllexport) void Inference(const char* engineFile, const char* labelFile, const char* folderPath) {
+        std::vector<std::string> imagePaths = getImagePathsInFolder(folderPath);
+        //GetEngine(engineFile);
+        inference1(engineFile, labelFile, imagePaths);
+    }
+}
+
+
+class  Yolov5TensorRt {
+
+public:
+
+    Yolov5TensorRt() {}
+
+    bool Process(unsigned char* image, int rows, int cols, int channels);
+
+    bool Process2(string image_path);
+
+    void Initialize(const char* engineFile, const char* labelFile);
+
+
+private:
+    float* gpu_buffers[3];
+    float* cpu_output_buffer1 = nullptr;
+    float* cpu_output_buffer2 = nullptr;
+
+    ICudaEngine* engine;
+    std::unordered_map<int, std::string> labels_map;
+    cudaStream_t stream;
+    nvinfer1::IExecutionContext* context;
+};
+
+
+// å®ä¾‹åŒ–ä¸€ä¸ªPaddleOcrå¯¹è±¡å¹¶è¿”å›æŒ‡é’ˆ
+extern "C" __declspec(dllexport) Yolov5TensorRt * YoloFactory(const char* engineFile, const char* labelFile);
+
+__declspec(dllexport) Yolov5TensorRt* YoloFactory(const char* engineFile, const char* labelFile) {
+
+    Yolov5TensorRt* p = new Yolov5TensorRt();
+    p->Initialize(engineFile, labelFile);
+    return p;
+}
+
+
+// è¿è¡ŒPaddleOcrå¹¶è¿”å›ç»“æœ
+extern "C" __declspec(dllexport) bool RunYolo(Yolov5TensorRt * handle, unsigned char* image, int rows, int cols, int channels);
+
+__declspec(dllexport) bool RunYolo(Yolov5TensorRt* handle, unsigned char* image, int rows, int cols, int channels) {
+    return  handle->Process(image, rows, cols, channels);
+}
+
+
+bool Yolov5TensorRt::Process(unsigned char* image, int rows, int cols, int channels) {
+
+    cv::Mat mat(rows, cols, CV_8UC3, image);
+
+    int dst_size = kInputW * kInputH * 3;
+
+    cuda_preprocess(mat.ptr(), mat.cols, mat.rows, gpu_buffers[0], kInputW, kInputH, stream);
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+
+    // Run inference
+    infer(*context, stream, (void**)gpu_buffers, cpu_output_buffer1, cpu_output_buffer2, kBatchSize);
+
+
+    // NMS
+    std::vector<std::vector<Detection>> res_batch;
+    batch_nms(res_batch, cpu_output_buffer2, 1, kOutputSize2, kConfThresh, kNmsThresh);
+
+
+    // Draw result and save image
+    auto& res = res_batch[0];
+    // size=0è¯´æ˜OK
+    if (res.size() == 0)
+        return true;
+
+    auto masks = process_mask(&cpu_output_buffer1[0], kOutputSize1, res);
+    draw_mask_bbox(mat, res, masks, labels_map);
+
+    string savPath = "./results/1.jpg";
+    cv::imwrite(savPath, mat);
+    return false;
+}
+
+
+void Yolov5TensorRt::Initialize(const char* engineFile, const char* labelFile) {
+
+    MyLogger logger;
+    fstream file;
+#pragma region ä»æ–‡ä»¶è¯»å–Engine
+    cout << "loading filename from:" << engineFile << endl;
+    nvinfer1::IRuntime* trtRuntime;
+    file.open(engineFile, ios::binary | ios::in);
+    file.seekg(0, ios::end);
+    int length = file.tellg();
+    file.seekg(0, ios::beg);
+    std::unique_ptr<char[]> data(new char[length]);
+    file.read(data.get(), length);
+    file.close();
+    cout << "load engine done" << endl;
+#pragma endregion
+
+    // åˆ›å»ºruntimeï¼Œå¹¶ååºåˆ—åŒ–engine
+    std::cout << "deserializing" << endl;
+    trtRuntime = createInferRuntime(logger);
+    //ICudaEngine* engine = trtRuntime->deserializeCudaEngine(data.get(), length);
+    engine = trtRuntime->deserializeCudaEngine(data.get(), length);
+    cout << "deserialize done" << endl;
+
+    // åˆ›å»ºæ‰§è¡Œç¯å¢ƒ
+    //nvinfer1::IExecutionContext* context = engine->createExecutionContext();
+    context = engine->createExecutionContext();
+
+    // çœ‹ä¸€ä¸‹è¾“å…¥è¾“å‡ºå½¢çŠ¶
+    // input (1, 3, 640, 640)
+    // output1 (1, 32, 160, 160)
+    // output2 (1, 25200, 117)
+    //for (int i = 0; i < engine->getNbBindings(); i++) {
+    //    Dims dim = engine->getBindingDimensions(i);
+    //    continue;
+    //}
+
+    // è¯»å–label.txt
+    //std::unordered_map<int, std::string> labels_map;
+    read_labels(labelFile, labels_map);
+
+    // åˆ›å»ºcudaæµ
+    //cudaStream_t stream;
+    CUDA_CHECK(cudaStreamCreate(&stream));
+    const static int kMaxInputImageSize = 4096 * 3112;
+    cuda_preprocess_init(kMaxInputImageSize);
+
+    // Prepare cpu and gpu buffers
+    //float* gpu_buffers[3];
+    //float* cpu_output_buffer1 = nullptr;
+    //float* cpu_output_buffer2 = nullptr;
+    prepare_buffers(engine, &gpu_buffers[0], &gpu_buffers[1], &gpu_buffers[2], &cpu_output_buffer1, &cpu_output_buffer2);
+
+    int kBatchSize = 1;
+
+}
+
+
+bool Yolov5TensorRt::Process2(string image_path) {
+
+    cv::Mat mat = cv::imread("./1.bmp");
+
+    int dst_size = kInputW * kInputH * 3;
+
+    cuda_preprocess(mat.ptr(), mat.cols, mat.rows, gpu_buffers[0], kInputW, kInputH, stream);
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Run inference
+    infer(*context, stream, (void**)gpu_buffers, cpu_output_buffer1, cpu_output_buffer2, kBatchSize);
+
+
+    // NMS
+    std::vector<std::vector<Detection>> res_batch;
+    batch_nms(res_batch, cpu_output_buffer2, 1, kOutputSize2, kConfThresh, kNmsThresh);
+
+
+    // Draw result and save image
+    auto& res = res_batch[0];
+    // size=0è¯´æ˜OK
+    if (res.size() == 0)
+        return true;
+
+    auto masks = process_mask(&cpu_output_buffer1[0], kOutputSize1, res);
+    draw_mask_bbox(mat, res, masks, labels_map);
+
+    string savPath = "./results/1.jpg";
+    cv::imwrite(savPath, mat);
+    return false;
+}
+
+
+
 int main()
 {
-    string engineFile = "./1.engine";
-    string labelFile = "./1.txt";
-    std::string folderPath = "E:/CODES/YOLO V5/yolov5-master/datasets/pzt/images";
-    std::vector<std::string> imagePaths = getImagePathsInFolder(folderPath);
-    //GetEngine(engineFile);
-    inference1(engineFile, labelFile, imagePaths);
-    return true;
+    const char* engineFile = "./1.engine";
+    const char* labelFile = "./1.txt";
+    //std::string folderPath = "E:/CODES/YOLO V5/yolov5-master/datasets/pzt/images";
+    //std::vector<std::string> imagePaths = getImagePathsInFolder(folderPath);
+    ////GetEngine(engineFile);
+    //inference1(engineFile, labelFile, imagePaths);
+    //return true;
+
+    Yolov5TensorRt rt;
+    rt.Initialize(engineFile, labelFile);
+    rt.Process2("./1.jpg");
+
 }
+
+
