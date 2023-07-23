@@ -26,9 +26,9 @@ void nms(std::vector<Detection>& res, float* output, float conf_thresh, float nm
     for (int i = 0; i < 25200; i++) {
         if (output[det_size * i + 4] <= conf_thresh) continue;
         float max_val = 0;
-        // Àà±ð±àºÅ
+        // ç±»åˆ«ç¼–å·
         int max_index = 0;
-        // Çó½« 80¸ö Àà±ðone-hot±àÂë×ª»¯ÎªÒ»¸ö0-79µÄÀà±ð±àºÅ
+        // æ±‚å°† 80ä¸ª ç±»åˆ«one-hotç¼–ç è½¬åŒ–ä¸ºä¸€ä¸ª0-79çš„ç±»åˆ«ç¼–å·
         for (int j = 0; j < 80; j++) {
             if (output[det_size * i + 5 + j] > max_val) {
                 max_val = output[det_size * i + 5 + j];
@@ -197,7 +197,3 @@ void draw_mask_bbox(cv::Mat& img, std::vector<Detection>& dets, std::vector<cv::
 
     }
 }
-
-
-
-
